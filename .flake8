@@ -1,0 +1,8 @@
+[flake8]
+max-line-length = 160
+exclude = .git,__pycache__,backups,uploads,Static,templates
+# Code herite (v1.0.0) : les regles purement stylistiques ci-dessous sont tolerees
+# sur l'existant et seront corrigees progressivement (voir v1.0.1).
+# Les erreurs bloquantes restent actives : syntaxe (E9), noms non definis (F821),
+# imports inutilises (F401), comparaisons dangereuses (F63x), etc.
+extend-ignore = E302,E303,E231,E721,W291,W293,F824,F841
