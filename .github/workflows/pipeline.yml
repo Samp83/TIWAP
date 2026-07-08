@@ -156,7 +156,8 @@ jobs:
 
   deploy-staging:
     name: Deploiement STAGING + tests d'integration
-    needs: deploy-dev
+    # "build" est requis dans needs pour acceder a needs.build.outputs.image
+    needs: [build, deploy-dev]
     runs-on: self-hosted
     environment:
       name: staging
