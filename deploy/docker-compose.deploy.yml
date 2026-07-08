@@ -1,0 +1,21 @@
+# Fichier de deploiement : utilise l'image publiee dans GHCR (jamais de build local).
+# Le meme fichier sert aux trois environnements (Build Once, Deploy Many) :
+#   IMAGE     -> image GHCR a deployer (identique sur DEV/STAGING/PROD)
+#   APP_PORT  -> port hote : 5001 (DEV), 5002 (STAGING), 5003 (PROD)
+services:
+  app:
+    image: ${IMAGE}
+    ports:
+      - "${APP_PORT}:5000"
+    depends_on:
+      - db
+    restart: unless-stopped
+  db:
+    image: mongo:4.4
+    environment:
+      - MONGO_INITDB_DATABASE=TIWAP
+      - MONGO_INITDB_ROOT_USERNAME=username
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - ../init-db.js:/docker-entrypoint-initdb.d/init-db.js:ro
+    restart: unless-stopped

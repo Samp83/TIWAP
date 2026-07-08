@@ -1,0 +1,206 @@
+name: Pipeline CI/CD
+
+# Declencheurs :
+#  - push sur feature/**            -> CI seule (lint, tests, Sonar, build + scan, sans publication)
+#  - pull request vers main         -> CI complete (bloque la fusion si echec)
+#  - push / merge sur main          -> CI + publication GHCR + CD (DEV -> STAGING -> PROD)
+#  - tag v* (v1.0.0, v1.0.1, ...)   -> release versionnee + deploiement complet
+on:
+  push:
+    branches: ["main", "feature/**"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/samp83/tiwap
+
+jobs:
+  # ---------------------------------------------------------------- CI
+  lint:
+    name: Lint (Flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Installer Flake8
+        run: pip install flake8
+      - name: Analyse statique du code
+        run: flake8 --count .
+
+  tests:
+    name: Tests unitaires (pytest)
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Installer les dependances
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Executer les tests unitaires
+        run: python -m pytest tests/ -v
+
+  sonarqube:
+    name: Analyse qualite (SonarQube)
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verifier la presence du token SonarQube
+        id: check
+        run: |
+          if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::SONAR_TOKEN absent : analyse SonarQube ignoree. Ajouter le secret pour activer la Quality Gate."
+          fi
+      - name: Analyse SonarCloud
+        if: steps.check.outputs.enabled == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+  build:
+    name: Build Docker, scan Trivy, publication GHCR
+    needs: sonarqube
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determiner les tags de l'image
+        id: image
+        run: |
+          SHORT_SHA=${GITHUB_SHA::7}
+          TAGS="${IMAGE_NAME}:sha-${SHORT_SHA}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAGS="${TAGS} ${IMAGE_NAME}:${GITHUB_REF_NAME} ${IMAGE_NAME}:latest"
+            echo "ref=${IMAGE_NAME}:${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+              TAGS="${TAGS} ${IMAGE_NAME}:main"
+            fi
+            echo "ref=${IMAGE_NAME}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "Tags construits : ${TAGS}"
+
+      - name: Construire l'image Docker
+        run: |
+          docker build $(for t in ${{ steps.image.outputs.tags }}; do printf -- "-t %s " "$t"; done) .
+
+      - name: Scan de vulnerabilites (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Connexion au registre GHCR
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publier l'image dans GHCR
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        run: |
+          for t in ${{ steps.image.outputs.tags }}; do
+            docker push "$t"
+          done
+
+  # ---------------------------------------------------------------- CD
+  deploy-dev:
+    name: Deploiement DEV + smoke tests
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: self-hosted
+    environment:
+      name: dev
+      url: https://localhost:5001
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+      APP_PORT: "5001"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Connexion au registre GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Deployer sur DEV (meme image que le registre)
+        run: |
+          docker compose -p tiwap-dev -f deploy/docker-compose.deploy.yml pull app
+          docker compose -p tiwap-dev -f deploy/docker-compose.deploy.yml up -d
+      - name: Smoke tests DEV
+        run: bash scripts/smoke_tests.sh https://localhost:5001
+
+  deploy-staging:
+    name: Deploiement STAGING + tests d'integration
+    needs: deploy-dev
+    runs-on: self-hosted
+    environment:
+      name: staging
+      url: https://localhost:5002
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+      APP_PORT: "5002"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Connexion au registre GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Deployer sur STAGING (meme image que DEV)
+        run: |
+          docker compose -p tiwap-staging -f deploy/docker-compose.deploy.yml pull app
+          docker compose -p tiwap-staging -f deploy/docker-compose.deploy.yml up -d
+      - name: Tests d'integration STAGING
+        run: bash scripts/integration_tests.sh https://localhost:5002
+
+  deploy-prod:
+    name: Deploiement PROD (apres validation manuelle)
+    needs: [build, deploy-staging]
+    runs-on: self-hosted
+    # L'environnement "production" est protege par une regle d'approbation manuelle
+    # (GitHub Environments -> required reviewers) : le job reste en attente tant
+    # que le deploiement n'a pas ete valide.
+    environment:
+      name: production
+      url: https://localhost:5003
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+      APP_PORT: "5003"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Connexion au registre GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Deployer sur PROD (meme image que DEV et STAGING)
+        run: |
+          docker compose -p tiwap-prod -f deploy/docker-compose.deploy.yml pull app
+          docker compose -p tiwap-prod -f deploy/docker-compose.deploy.yml up -d
+      - name: Verification du bon fonctionnement
+        run: bash scripts/smoke_tests.sh https://localhost:5003
