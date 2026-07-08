@@ -5,6 +5,20 @@ set -u
 BASE_URL="$1"
 FAILED=0
 
+# Attendre que l'application soit prete (demarrage du conteneur + MongoDB)
+echo "Attente du demarrage de l'application ($BASE_URL)..."
+for i in $(seq 1 30); do
+  if curl -k -s -f -o /dev/null "$BASE_URL/"; then
+    echo "Application prete (tentative $i)"
+    break
+  fi
+  if [ "$i" = "30" ]; then
+    echo "ECHEC - l'application ne repond pas apres 30 tentatives"
+    exit 1
+  fi
+  sleep 5
+done
+
 check() {
   local name="$1"; shift
   if "$@"; then
