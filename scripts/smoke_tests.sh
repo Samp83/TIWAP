@@ -24,4 +24,12 @@ if [ "$status" != "200" ]; then
 fi
 echo "OK - page d'accueil HTTP 200"
 
+# Health check (disponible depuis la v1.0.1)
+health=$(curl -k -s "$BASE_URL/health")
+if ! echo "$health" | grep -q '"status"'; then
+  echo "ECHEC - /health ne repond pas correctement : $health"
+  exit 1
+fi
+echo "OK - /health : $health"
+
 echo "Smoke tests reussis."

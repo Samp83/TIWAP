@@ -11,6 +11,7 @@ from helper.auth import Auth
 from helper.db_manager import DBManager
 from helper.mongodb_manager import MongoDBManager
 from vulnerabilities import SQLi, CommandInjection, BusinessLogic, XXE, XSS, BruteForce, NoSQL, HTMLInjection, InsecureDeserialization
+from version import __version__
 
 import os
 import requests
@@ -45,6 +46,18 @@ Low               0
 Medium            1
 Hard              2
 '''
+
+
+# Version de l'application injectee dans tous les templates
+@app.context_processor
+def inject_version():
+    return {'app_version': __version__}
+
+
+# Health check (nouvelle fonctionnalite v1.0.1) : supervision et smoke tests
+@app.route('/health')
+def health():
+    return {'status': 'ok', 'version': __version__}
 
 
 # Index
