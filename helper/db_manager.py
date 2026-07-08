@@ -42,6 +42,12 @@ class DBManager:
         if type(result) != 'NoneType':
             data = self.cur.fetchone()
             self.close_db_connection()
+
+            # Bugfix v1.0.1 : un utilisateur inconnu (ou sans mot de passe)
+            # provoquait un TypeError et une erreur HTTP 500
+            if data is None or data[1] is None:
+                return False
+
             password_db = data[1]
 
             password = md5(bytes(password, encoding='utf-8')).hexdigest()

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name=”viewport” content=”width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!--Custom CSS-->
     <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}" type="text/css">
@@ -26,12 +26,13 @@
     <div class="text-center" style="background-color: darkslategrey; color: #fff; padding: 10px">
         <h1>TIWAP</h1>
         <h6 class="display-6" style="font-size: 32px">Totally Insecure Web Application Project</h6>
+        <span class="badge bg-success">v{{ app_version }}</span>
     </div>
     {% block content %}
     {% endblock %}
     <div class="text-center"
             style="background-color: darkslategrey; color: #fff; padding: 2px; position: fixed; width: 100%; bottom: 0">
-        <p style="font-size: 16px">Made with &#9825;</p>
+        <p style="font-size: 16px">TIWAP v{{ app_version }} &mdash; d&eacute;ploy&eacute; automatiquement via la pipeline CI/CD &mdash; Made with &#9825;</p>
     </div>
 </body>
 </html>

@@ -31,3 +31,25 @@ def test_login_valid_credentials_redirects_to_dashboard(client):
     response = client.post('/login', data={'username': 'admin', 'password': 'admin'})
     assert response.status_code == 302
     assert '/dashboard' in response.headers['Location']
+
+
+def test_login_unknown_user_no_crash(client):
+    # Bugfix v1.0.1 : renvoyait HTTP 500 (TypeError dans check_login)
+    response = client.post('/login', data={'username': 'utilisateur_inconnu', 'password': 'x'})
+    assert response.status_code == 200
+    assert b'Invalid Credentials' in response.data
+
+
+def test_health_endpoint(client):
+    # Nouvelle fonctionnalite v1.0.1
+    from version import __version__
+    response = client.get('/health')
+    assert response.status_code == 200
+    assert response.get_json() == {'status': 'ok', 'version': __version__}
+
+
+def test_version_displayed_on_index(client):
+    # La version est affichee dans l'interface (header + footer)
+    from version import __version__
+    response = client.get('/')
+    assert ('v' + __version__).encode() in response.data

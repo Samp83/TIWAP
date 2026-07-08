@@ -26,6 +26,16 @@ def test_check_login_wrong_password(dbm):
     assert not dbm.check_login(username='admin', password='mauvais_mdp')
 
 
+def test_check_login_unknown_user_returns_false(dbm):
+    # Bugfix v1.0.1 : provoquait un TypeError (HTTP 500)
+    assert dbm.check_login(username='utilisateur_inconnu', password='x') is False
+
+
+def test_check_login_user_without_password_returns_false(dbm):
+    # johndoe est seede avec un mot de passe NULL
+    assert dbm.check_login(username='johndoe', password='') is False
+
+
 def test_get_comments_seeded(dbm):
     comments = dbm.get_comments()
     assert len(comments) >= 3
